@@ -314,19 +314,25 @@ const toInput = h => h == null ? '' : fh(h, false);
 
 // Time slots: "8:00-12:00, 13:00-15:00" (also "9am - 5pm", "8-12", "22:00-02:00"). Returns the total hours, or NaN.
 const SLOT = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|—|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/;
+// One slot like "8:00-12:00" or "9am - 5pm" as { start, end } in minutes since midnight (end runs past 1440 if it wraps
+// past midnight), or null if it isn't a slot.
+function slotMinutes(part) {
+  const m = part.trim().toLowerCase().match(SLOT); if (!m) return null;
+  const at = (h, mi, ap) => {
+    h = Number(h); mi = Number(mi || 0);
+    if (mi > 59 || h > 24 || (ap && (h < 1 || h > 12))) return NaN;
+    if (ap) h = h % 12 + (ap === 'pm' ? 12 : 0);
+    return h * 60 + mi;
+  };
+  const s = at(m[1], m[2], m[3]), e = at(m[4], m[5], m[6]);
+  if (Number.isNaN(s) || Number.isNaN(e) || s === e) return null;
+  return { start: s, end: e > s ? e : e + 1440 };   // an end before the start means past midnight
+}
 function parseSlots(v) {
   let mins = 0;
   for (const part of v.split(/[,;\n+&]|\band\b/)) {
-    const m = part.trim().match(SLOT); if (!m) return NaN;
-    const at = (h, mi, ap) => {
-      h = Number(h); mi = Number(mi || 0);
-      if (mi > 59 || h > 24 || (ap && (h < 1 || h > 12))) return NaN;
-      if (ap) h = h % 12 + (ap === 'pm' ? 12 : 0);
-      return h * 60 + mi;
-    };
-    const a = at(m[1], m[2], m[3]), b = at(m[4], m[5], m[6]);
-    if (Number.isNaN(a) || Number.isNaN(b) || a === b) return NaN;
-    mins += b > a ? b - a : b + 1440 - a;       // an end before the start means past midnight
+    const s = slotMinutes(part); if (!s) return NaN;
+    mins += s.end - s.start;
   }
   return mins / 60;
 }

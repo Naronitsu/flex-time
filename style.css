@@ -762,3 +762,15 @@ body.bare { display:block; }
 .planlist li b { font-family:var(--sans); font-weight:900; font-size:20px; }
 .planlist li .when { grid-column:1 / -1; color:var(--muted); font-size:13px; font-weight:700; }
 .planlist li.full b { color:var(--ink); } .planlist li.owe b { color:var(--bad); } .planlist li.extra b { color:var(--ok); }
+
+/* planner: several breaks */
+.breaks { display:flex; flex-direction:column; gap:8px; }
+.brow { display:flex; gap:8px; align-items:center; }
+.brow .inp { flex:1; }
+.brow .x { flex:none; }
+.breaknote { margin:8px 0 0; font-size:13px; }
+.breaknote code, .dsub code { background:var(--bg); border:2px solid var(--line); border-radius:6px; padding:0 5px; color:var(--ink); }
+.planlist li.so { background:none; border-style:dashed; }
+.planlist li.so b { color:var(--muted); }
+#planNote { margin:10px 0 0; min-height:18px; }
+.planner .row .btn { white-space:normal; text-align:left; }

@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Today · VibeTime</title>
-<link rel="stylesheet" href="style.css?v=123513d4">
+<link rel="stylesheet" href="style.css?v=cd1e5c3f">
 <script src="holidays.js?v=270cf135"></script>
-<script src="app.js?v=8c45695c"></script>
+<script src="app.js?v=3aac769c"></script>
 <script src="sync.js?v=13341324"></script>
 <script src="timer.js?v=f0563fcf"></script>
 <script src="camp.js?v=02b38515"></script>
-<script src="tour.js?v=aede9f6c"></script>
+<script src="tour.js?v=c8bec657"></script>
 <script src="sky.js?v=f93de382"></script>
 </head>
 <body>
@@ -70,16 +70,19 @@
         <div class="preview" id="preview" role="status"></div>
         <div class="planline" id="planline" hidden></div>
         <div class="planner" id="planner" hidden>
-          <div class="two">
-            <div><label class="f" for="punchIn">Punched in at</label><input class="inp" type="time" id="punchIn"></div>
-            <div><label class="f" for="punchBrk">Break (minutes)</label><input class="inp" type="number" id="punchBrk" min="0" step="5" placeholder="0"></div>
-          </div>
+          <label class="f" for="punchIn">Punched in at</label>
+          <input class="inp" type="time" id="punchIn">
+          <div class="lab mt"><span class="f">Breaks</span><button type="button" class="fill" id="addBreak">+ Add break</button></div>
+          <div class="breaks" id="breaks"></div>
+          <p class="dsub breaknote">Type the times, like <code>12:00-12:45</code>, or just the length, like <code>30</code> (minutes). Add as many as you need.</p>
           <ul class="planlist" id="planOut"></ul>
           <div class="row mt">
+            <button class="btn primary" type="button" id="planResume" hidden>Log my work so far, then start after my last break</button>
+            <button class="btn" type="button" id="planStart" hidden>Start timer from punch-in</button>
             <button class="btn" type="button" id="planNow">Use current time</button>
-            <button class="btn" type="button" id="planStart" hidden>Start timer from then</button>
             <button class="btn danger" type="button" id="planClear">Clear</button>
           </div>
+          <p class="dsub" id="planNote" role="status"></p>
         </div>
         <div class="manual" id="manual" hidden>
           <input type="hidden" id="date">
@@ -471,64 +474,142 @@ $('timer').onclick = ev => {
   if (r.logged) { dateEl.value = fmt(new Date()); refresh(); flash(`Logged ${fh(r.logged, false)} from the timer`); }
   renderTimer();
 };
-// ---- punch-in planner: type when you started and see when you can leave
-const PLAN_KEY = 'vibetime.punchin', BREAK_KEY = 'vibetime.break';
+// ---- punch-in planner: your punch-in and breaks in, your leave times out
+const PLAN_KEY = 'vibetime.punchin';
 const planEl = $('planner'), planBtn = $('planBtn');
+const emptyPlan = () => ({ date: fmt(new Date()), time: '', breaks: [''], applied: null });
 function readPlan() {
-  try { const p = JSON.parse(localStorage.getItem(PLAN_KEY)); return p && p.date === fmt(new Date()) && /^\d{1,2}:\d{2}$/.test(p.time) ? p : null; } catch { return null; }
+  try {
+    const p = JSON.parse(localStorage.getItem(PLAN_KEY));
+    if (!p || p.date !== fmt(new Date())) return null;
+    return { ...emptyPlan(), ...p, breaks: Array.isArray(p.breaks) && p.breaks.length ? p.breaks : [''] };
+  } catch { return null; }
 }
-const readBreak = () => { try { return Math.max(0, Number(localStorage.getItem(BREAK_KEY)) || 0); } catch { return 0; } };
+const writePlan = p => { try { localStorage.setItem(PLAN_KEY, JSON.stringify(p)); } catch {} };
 const clockText = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-// Leave times for the punch-in on record. "gap" is your balance before today measured against your quarter target:
-// negative = time you still owe, positive = extra you can spend.
-function planRows() {
-  const p = readPlan(); if (!p) return null;
-  const [h, m] = p.time.split(':').map(Number), now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m).getTime();
-  const brk = readBreak() * 6e4, exp = expectedFor(startOfToday());
+const dayStart = () => startOfToday().getTime();
+
+// A break is either a time range ("12:00-12:45") or a length in minutes ("30", "45m", "1h"). Returns
+// { mins, from?, to? } (from/to are clock times in ms), null for a blank box, or NaN if it can't be read.
+function parseBreak(txt) {
+  const t = (txt || '').trim().toLowerCase(); if (!t) return null;
+  const slot = slotMinutes(t);
+  if (slot) return { mins: slot.end - slot.start, from: dayStart() + slot.start * 6e4, to: dayStart() + slot.end * 6e4 };
+  if (/^\d+(\.\d+)?$/.test(t)) return { mins: Number(t) };
+  const h = parseHours(t);
+  return Number.isNaN(h) || h == null ? NaN : { mins: Math.round(h * 60) };
+}
+
+// Everything the planner shows, from the saved punch-in and breaks.
+// "gap" is your balance before today measured against your quarter target: negative = time you still owe, positive = extra.
+function planData() {
+  const p = readPlan(); if (!p || !/^\d{1,2}:\d{2}$/.test(p.time)) return null;
+  const [h, m] = p.time.split(':').map(Number), now = Date.now();
+  const from = dayStart() + (h * 60 + m) * 6e4;
+  const brks = p.breaks.map(parseBreak).filter(b => b && !Number.isNaN(b));
+  const brkMs = brks.reduce((x, b) => x + b.mins, 0) * 6e4;
+  const exp = expectedFor(startOfToday());
   const gap = balanceThrough(addDays(startOfToday(), -1)) - state.settings.quarterTarget;
-  const at = hrs => from + Math.max(0, hrs) * 36e5 + brk;
+  const at = hrs => from + Math.max(0, hrs) * 36e5 + brkMs;
   const rows = [];
   if (exp > 0) rows.push({ k: 'full', label: `Full ${fh(exp, false)} day`, at: at(exp) });
   if (gap < -0.008) rows.push({ k: 'owe', label: `To clear your ${fh(-gap, false)} missing`, at: at(exp - gap) });
   if (gap > 0.008 && exp > 0) rows.push({ k: 'extra', label: `Earliest, using your ${fh(gap, false)} extra`, at: at(exp - gap), free: exp - gap <= 0 });
-  if (!exp && gap < -0.008) rows.push({ k: 'owe', label: `To clear your ${fh(-gap, false)} missing`, at: at(-gap) });
-  return { rows, from, now: now.getTime(), noHours: !exp && !(gap < -0.008) };
+  // breaks with times that are already over: the latest one is where "start after my last break" begins
+  const done = brks.filter(b => b.to && b.to <= now).sort((x, y) => y.to - x.to);
+  const last = done[0] || null;
+  let resume = null;
+  if (last) {
+    const before = brks.filter(b => !b.to || b.to <= last.to).reduce((x, b) => x + b.mins, 0) * 6e4;   // untimed breaks count as already taken
+    resume = { at: last.to, worked: Math.max(0, last.to - from - before) / 36e5 };
+  }
+  const sofar = Math.max(0, now - from - brks.reduce((x, b) => x + (b.from ? Math.max(0, Math.min(now, b.to) - b.from) : b.mins * 6e4), 0));
+  return { p, rows, from, now, brks, brkMs, resume, sofar, noHours: !rows.length };
 }
 const untilText = (at, now) => {
   const d = at - now, mins = Math.round(Math.abs(d) / 6e4);
   return d >= 0 ? `in ${fh(mins / 60, false)}` : `${fh(mins / 60, false)} ago`;
 };
+
+// the buttons only make sense when they would not clash with a timer you started yourself
+function ownTimer(pl) {
+  const t = readTimer(), ap = pl && pl.p.applied;
+  return !!(t && ap && t.mode === 'run' && Math.abs(t.since - ap.at) < 1500 && !t.acc);
+}
+function renderBreaks() {
+  const p = readPlan() || emptyPlan(), box = $('breaks');
+  if (box.querySelectorAll('input').length === p.breaks.length && box.contains(document.activeElement)) return;   // don't rebuild while typing
+  box.innerHTML = p.breaks.map((b, i) => `<div class="brow"><input class="inp brk" data-i="${i}" value="${b.replace(/"/g, '&quot;')}" placeholder="12:00-12:45 or 30" autocomplete="off" aria-label="Break ${i + 1}">${p.breaks.length > 1 ? `<button type="button" class="btn sm x" data-rm="${i}" aria-label="Remove break ${i + 1}">&times;</button>` : ''}</div>`).join('');
+}
 function renderPlan() {
-  const pl = planRows(), line = $('planline'), out = $('planOut');
-  $('planStart').hidden = !pl || pl.from > Date.now() || !!readTimer();
+  const pl = planData(), line = $('planline'), out = $('planOut');
+  for (const inp of document.querySelectorAll('#breaks .brk')) inp.classList.toggle('invalid', Number.isNaN(parseBreak(inp.value)));
+  const timer = readTimer();
+  $('planStart').hidden = !pl || pl.from > Date.now() || !!timer || pl.brks.length > 0 || !!pl.p.applied;
+  const canResume = !!(pl && pl.resume && (!timer || ownTimer(pl)));
+  const newWork = pl && pl.resume ? pl.resume.worked - (pl.p.applied ? pl.p.applied.hours : 0) : 0;
+  $('planResume').hidden = !canResume || newWork <= 0.0083 && !!pl.p.applied && Math.abs(pl.resume.at - pl.p.applied.at) < 1000;
+  $('planResume').textContent = pl && pl.p.applied ? 'Log my work since, then restart after my latest break' : 'Log my work so far, then start after my last break';
+  const note = $('planNote');
+  if (pl && pl.resume && !$('planResume').hidden) note.textContent = `That logs ${fh(Math.max(0, newWork), false)} of work (punch-in to ${clockText(pl.resume.at)}, minus breaks) and starts the timer from ${clockText(pl.resume.at)}.`;
+  else if (pl && pl.p.applied) note.textContent = `Logged ${fh(pl.p.applied.hours, false)} of work so far. The timer carries on from ${clockText(pl.p.applied.at)}.`;
+  else if (pl && pl.brks.length && !pl.resume) note.textContent = 'Once a break with times (like 12:00-12:45) is over, you can log your work so far and carry on from there.';
+  else note.textContent = '';
   if (!pl) { line.hidden = true; out.innerHTML = '<li class="empty">Enter the time you punched in.</li>'; planBtn.classList.remove('has'); return; }
   planBtn.classList.add('has');
-  out.innerHTML = pl.noHours ? '<li class="empty">No hours are expected today.</li>' : pl.rows.map(x => `<li class="${x.k}"><span class="d">${x.label}</span><b class="tab">${x.free ? 'any time' : clockText(x.at)}</b><span class="when">${x.free ? 'your extra covers the day' : untilText(x.at, pl.now)}</span></li>`).join('');
+  const worked = `<li class="so"><span class="d">Worked so far, after breaks</span><b class="tab">${fh(pl.sofar / 36e5, false)}</b></li>`;
+  out.innerHTML = (pl.noHours ? '<li class="empty">No hours are expected today.</li>' : pl.rows.map(x => `<li class="${x.k}"><span class="d">${x.label}</span><b class="tab">${x.free ? 'any time' : clockText(x.at)}</b><span class="when">${x.free ? 'your extra covers the day' : untilText(x.at, pl.now)}</span></li>`).join('')) + worked;
   const short = { full: 'for a full day', owe: 'to clear what you owe', extra: 'earliest' };
   line.innerHTML = pl.noHours ? '' : pl.rows.map(x => `<span><b class="tab">${x.free ? 'Any time' : clockText(x.at)}</b> ${short[x.k]}</span>`).join('');
   line.hidden = planEl.hidden === false || pl.noHours;
 }
 function showPlan(open) {
   planEl.hidden = !open; planBtn.setAttribute('aria-expanded', open); planBtn.classList.toggle('on', open);
-  renderPlan();
+  renderBreaks(); renderPlan();
   if (open) $('punchIn').focus({ preventScroll: true });
 }
 planBtn.onclick = () => showPlan(planEl.hidden);
 function savePlan() {
-  const v = $('punchIn').value, brk = Math.max(0, Number($('punchBrk').value) || 0);
-  try { localStorage.setItem(BREAK_KEY, String(brk)); v ? localStorage.setItem(PLAN_KEY, JSON.stringify({ date: fmt(new Date()), time: v })) : localStorage.removeItem(PLAN_KEY); } catch {}
-  renderPlan();
+  const p = readPlan() || emptyPlan();
+  p.time = $('punchIn').value;
+  p.breaks = [...document.querySelectorAll('#breaks .brk')].map(i => i.value);
+  if (!p.breaks.length) p.breaks = [''];
+  writePlan(p); renderPlan();
 }
-$('punchIn').oninput = savePlan; $('punchBrk').oninput = savePlan;
+$('punchIn').oninput = savePlan;
+$('breaks').addEventListener('input', savePlan);
+$('breaks').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-rm]'); if (!b) return;
+  const p = readPlan() || emptyPlan(); p.breaks.splice(Number(b.dataset.rm), 1); if (!p.breaks.length) p.breaks = ['']; writePlan(p);
+  $('breaks').innerHTML = ''; renderBreaks(); renderPlan();
+});
+$('addBreak').onclick = () => {
+  const p = readPlan() || emptyPlan(); p.breaks.push(''); writePlan(p);
+  $('breaks').innerHTML = ''; renderBreaks(); renderPlan();
+  const ins = document.querySelectorAll('#breaks .brk'); ins[ins.length - 1].focus();
+};
 $('planNow').onclick = () => { const n = new Date(); $('punchIn').value = `${pad(n.getHours())}:${pad(n.getMinutes())}`; savePlan(); };
-$('planClear').onclick = () => { $('punchIn').value = ''; savePlan(); };
+$('planClear').onclick = () => { try { localStorage.removeItem(PLAN_KEY); } catch {} $('punchIn').value = ''; $('breaks').innerHTML = ''; renderBreaks(); renderPlan(); };
 $('planStart').onclick = () => {                       // carry on as if the timer had been started at the punch-in time
-  const pl = planRows(); if (!pl || pl.from > Date.now() || readTimer()) return;
+  const pl = planData(); if (!pl || pl.from > Date.now() || readTimer()) return;
   try { localStorage.removeItem(PUNCH_KEY); } catch {}
   writeTimer({ mode: 'run', since: pl.from, acc: 0 }); renderTimer(); renderPlan();
 };
-(() => { const p = readPlan(); if (p) $('punchIn').value = p.time; $('punchBrk').value = readBreak() || ''; renderPlan(); })();
+// Log everything worked up to the end of the latest break (minus breaks), and start the timer from there.
+// Hours already logged this way are not counted twice if you use it again after a later break.
+$('planResume').onclick = () => {
+  const pl = planData(); if (!pl || !pl.resume) return;
+  const t = readTimer(); if (t && !ownTimer(pl)) return;
+  const prev = pl.p.applied ? pl.p.applied.hours : 0;
+  const add = Math.round(Math.max(0, pl.resume.worked - prev) * 60) / 60;
+  if (add > 0) { const k = fmt(new Date()), e = state.days[k] || {}; setEntry(k, { ...e, w: (e.w || 0) + add }); }
+  try { localStorage.removeItem(PUNCH_KEY); } catch {}
+  writeTimer({ mode: 'run', since: pl.resume.at, acc: 0 });
+  const p = pl.p; p.applied = { hours: Math.max(prev, pl.resume.worked), at: pl.resume.at }; writePlan(p);
+  refresh(); renderTimer(); renderPlan();
+  if (add > 0) flash(`Logged ${fh(add, false)} and started from ${clockText(pl.resume.at)}`);
+};
+(() => { const p = readPlan(); if (p) $('punchIn').value = p.time; renderBreaks(); renderPlan(); })();
 setInterval(renderPlan, 30000);
 window.addEventListener('storage', ev => { if (ev.key === TIMER_KEY) renderPlan(); });
 
