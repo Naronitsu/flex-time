@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Today · VibeTime</title>
-<link rel="stylesheet" href="style.css?v=cd1e5c3f">
+<link rel="stylesheet" href="style.css?v=f537081d">
 <script src="holidays.js?v=270cf135"></script>
 <script src="app.js?v=3aac769c"></script>
 <script src="sync.js?v=13341324"></script>
@@ -78,6 +78,8 @@
           <ul class="planlist" id="planOut"></ul>
           <div class="row mt">
             <button class="btn primary" type="button" id="planResume" hidden>Log my work so far, then start after my last break</button>
+            <button class="btn primary" type="button" id="planLog" hidden>Log my time worked so far</button>
+            <button class="btn" type="button" id="planLogGo" hidden>Log it and keep tracking</button>
             <button class="btn" type="button" id="planStart" hidden>Start timer from punch-in</button>
             <button class="btn" type="button" id="planNow">Use current time</button>
             <button class="btn danger" type="button" id="planClear">Clear</button>
@@ -471,6 +473,7 @@ $('timer').onclick = ev => {
   const r = timerAct(b.dataset.t);
   if (r.cancelled) return;
   timerNote = r.note;
+  if (r.note) setTimeout(() => { timerNote = ''; renderTimer(); }, 4000);
   if (r.logged) { dateEl.value = fmt(new Date()); refresh(); flash(`Logged ${fh(r.logged, false)} from the timer`); }
   renderTimer();
 };
@@ -550,9 +553,15 @@ function renderPlan() {
   const newWork = pl && pl.resume ? pl.resume.worked - (pl.p.applied ? pl.p.applied.hours : 0) : 0;
   $('planResume').hidden = !canResume || newWork <= 0.0083 && !!pl.p.applied && Math.abs(pl.resume.at - pl.p.applied.at) < 1000;
   $('planResume').textContent = pl && pl.p.applied ? 'Log my work since, then restart after my latest break' : 'Log my work so far, then start after my last break';
+  // logging what you've worked so far (punch-in to now, minus every break) works with any kind of break
+  const addH = pl ? pl.sofar / 36e5 : 0;
+  const canLog = !!(pl && pl.from <= pl.now && addH > 0.0083 && !timer && !pl.p.applied);
+  $('planLog').hidden = !canLog; $('planLogGo').hidden = !canLog;
+  $('planLog').textContent = canLog ? `Log my ${fh(addH, false)} worked so far` : 'Log my time worked so far';
   const note = $('planNote');
-  if (pl && pl.resume && !$('planResume').hidden) note.textContent = `That logs ${fh(Math.max(0, newWork), false)} of work (punch-in to ${clockText(pl.resume.at)}, minus breaks) and starts the timer from ${clockText(pl.resume.at)}.`;
-  else if (pl && pl.p.applied) note.textContent = `Logged ${fh(pl.p.applied.hours, false)} of work so far. The timer carries on from ${clockText(pl.p.applied.at)}.`;
+  if (canLog && !(pl.resume && !$('planResume').hidden)) { const e = state.days[fmt(new Date())]; note.textContent = `Adds ${fh(addH, false)} (punch-in to now, minus your breaks) to today${e && e.w ? `, on top of the ${fh(e.w, false)} already logged` : ''}. "Keep tracking" also starts the timer from now.`; }
+  else if (pl && pl.resume && !$('planResume').hidden) note.textContent = `That logs ${fh(Math.max(0, newWork), false)} of work (punch-in to ${clockText(pl.resume.at)}, minus breaks) and starts the timer from ${clockText(pl.resume.at)}.`;
+  else if (pl && pl.p.applied) note.textContent = timer ? `Logged ${fh(pl.p.applied.hours, false)} of work so far. The timer carries on from ${clockText(pl.p.applied.at)}.` : `Logged ${fh(pl.p.applied.hours, false)} for today.`;
   else if (pl && pl.brks.length && !pl.resume) note.textContent = 'Once a break with times (like 12:00-12:45) is over, you can log your work so far and carry on from there.';
   else note.textContent = '';
   if (!pl) { line.hidden = true; out.innerHTML = '<li class="empty">Enter the time you punched in.</li>'; planBtn.classList.remove('has'); return; }
@@ -595,6 +604,20 @@ $('planStart').onclick = () => {                       // carry on as if the tim
   try { localStorage.removeItem(PUNCH_KEY); } catch {}
   writeTimer({ mode: 'run', since: pl.from, acc: 0 }); renderTimer(); renderPlan();
 };
+// Log what you have worked so far (punch-in to now, minus all breaks). Optionally carry on with the timer from now.
+function logSoFar(keepGoing) {
+  const pl = planData(); if (!pl || readTimer()) return;
+  const add = Math.round(pl.sofar / 36e5 * 60) / 60; if (add <= 0) return;
+  const k = fmt(new Date()), e = state.days[k] || {};
+  setEntry(k, { ...e, w: (e.w || 0) + add });
+  const p = pl.p; p.applied = { hours: add, at: pl.now }; writePlan(p);
+  try { keepGoing ? localStorage.removeItem(PUNCH_KEY) : localStorage.setItem(PUNCH_KEY, k); } catch {}
+  if (keepGoing) writeTimer({ mode: 'run', since: pl.now, acc: 0 });
+  refresh(); renderTimer(); renderPlan();
+  flash(keepGoing ? `Logged ${fh(add, false)} and the timer is running` : `Logged ${fh(add, false)} for today`);
+}
+$('planLog').onclick = () => logSoFar(false);
+$('planLogGo').onclick = () => logSoFar(true);
 // Log everything worked up to the end of the latest break (minus breaks), and start the timer from there.
 // Hours already logged this way are not counted twice if you use it again after a later break.
 $('planResume').onclick = () => {

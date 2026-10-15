@@ -774,3 +774,7 @@ body.bare { display:block; }
 .planlist li.so b { color:var(--muted); }
 #planNote { margin:10px 0 0; min-height:18px; }
 .planner .row .btn { white-space:normal; text-align:left; }
+
+/* the small note under the big button must not sit on top of it */
+.bigctl { flex-wrap:wrap; }
+.bigctl .tnote { position:static; flex-basis:100%; text-align:center; margin-top:2px; }
