@@ -107,7 +107,8 @@ try {
 // First visit: no saved data and the intro hasn't been seen, so go to the welcome page.
 const WELCOME_KEY = 'vibetime.welcomed';
 try {
-  if (!localStorage.getItem(KEY) && !localStorage.getItem(WELCOME_KEY) && !/welcome\.html$/.test(location.pathname)) location.replace('welcome.html');
+  if (!localStorage.getItem(KEY) && !localStorage.getItem(WELCOME_KEY) && !/welcome\.html$/.test(location.pathname)
+      && !(sessionStorage.getItem('vt.pkce') && /[?&]code=/.test(location.search))) location.replace('welcome.html');
 } catch {}
 // Change tracking for device sync: every save notices which days (and whether the settings) changed since the last
 // save and stamps them with the time, so two devices can later keep the newer version of each day. Theme is per device.
@@ -248,9 +249,11 @@ function monthDelta(y, m) {
 }
 // Hours for one month, counting only days from the tracking start: how many are expected, and how many are credited,
 // split by kind. A public holiday on a working day counts as a day of PTO (credited and expected) without using up the allowance.
-function monthTotals(y, m) {
+const monthTotals = (y, m) => rangeTotals(new Date(y, m, 1), new Date(y, m + 1, 0));
+// The same totals for any run of days (from, to inclusive).
+function rangeTotals(from, to) {
   const start = parseDate(state.settings.start), out = { expected: 0, w: 0, pto: 0, sick: 0 };
-  for (const d = new Date(y, m, 1); d.getMonth() === m; d.setDate(d.getDate() + 1)) {
+  for (const d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
     if (d < start) continue;
     const e = state.days[fmt(d)] || {}, exp = expectedFor(d);
     out.expected += exp; out.w += e.w || 0;

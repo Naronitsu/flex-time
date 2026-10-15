@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Welcome · VibeTime</title>
-<link rel="stylesheet" href="style.css?v=f5ffd97d">
+<link rel="stylesheet" href="style.css?v=123513d4">
 <script src="holidays.js?v=270cf135"></script>
-<script src="app.js?v=311d946e"></script>
-<script src="sync.js?v=1bd22167"></script>
+<script src="app.js?v=8c45695c"></script>
+<script src="sync.js?v=13341324"></script>
 </head>
 <body class="bare">
 <main class="welcome">
@@ -61,8 +61,8 @@
   <section class="panel wstep" data-step="3" hidden>
     <h2 id="guideTitle">A quick tour</h2>
     <div class="guide">
-      <div class="gcard"><i>1</i><div><b>Log your day</b><p>On <em>Today</em>, type hours like <code>7h 45m</code> or <code>7.75</code>, or enter time slots like <code>8:00-12:00, 13:00-15:00</code> and VibeTime adds them up. PTO and sick leave can share a day with worked time. <em>Fill rest</em> tops a day up to full.</p></div></div>
-      <div class="gcard"><i>2</i><div><b>Or use the timer</b><p>Press the play button next to <em>Log the day</em>. Pause for breaks, press play to carry on, and stop to add the time to today.</p></div></div>
+      <div class="gcard"><i>1</i><div><b>Log your day</b><p>On <em>Today</em>, press the big play button when you start working and stop when you finish, and the time is added for you. Prefer typing? Tap the pencil and enter hours like <code>7h 45m</code> or time slots like <code>8:00-12:00, 13:00-15:00</code>. PTO and sick leave can share a day with worked time.</p></div></div>
+      <div class="gcard"><i>2</i><div><b>Pause for breaks</b><p>Pause the timer for a break and press play to carry on. Your hiker walks, snacks and sleeps along with you.</p></div></div>
       <div class="gcard"><i>3</i><div><b>Watch your balance</b><p>Your balance is the plus or minus against your target. The weather shows how close you are to the monthly limit, and the trail shows the quarter, where you should be back at zero. Past working days with nothing logged count as 0h until you fill them in.</p></div></div>
       <div class="gcard"><i>4</i><div><b>Collect stars</b><p>Every week is a constellation with one star per working day. Log a day and its star lights up. The <em>Stars</em> page shows your whole year.</p></div></div>
       <div class="gcard"><i>5</i><div><b>Calendar, leave and holidays</b><p>Click any day in the <em>Calendar</em> to edit it. Click the PTO or Sick bottle on Today to book dates. Pick your country in <em>Settings</em> to get public holidays, and export a backup there every so often.</p></div></div>
@@ -90,6 +90,8 @@ document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => show(+b.da
 
 // ---- restore from Google Drive
 if (syncAvailable() && !returning) $('goDrive').hidden = false;
+const vtMsg = sessionStorage.getItem('vt.msg');
+if (vtMsg) { sessionStorage.removeItem('vt.msg'); $('importMsg').innerHTML = `<span class="neg">${vtMsg}</span>`; }
 $('goDrive').onclick = async () => {
   $('importMsg').textContent = 'Waiting for Google…';
   const r = await syncRestore();

@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Today · VibeTime</title>
-<link rel="stylesheet" href="style.css?v=f5ffd97d">
+<link rel="stylesheet" href="style.css?v=123513d4">
 <script src="holidays.js?v=270cf135"></script>
-<script src="app.js?v=311d946e"></script>
-<script src="sync.js?v=1bd22167"></script>
+<script src="app.js?v=8c45695c"></script>
+<script src="sync.js?v=13341324"></script>
 <script src="timer.js?v=f0563fcf"></script>
-<script src="camp.js?v=04d2d5bf"></script>
-<script src="tour.js?v=bfc2b015"></script>
+<script src="camp.js?v=02b38515"></script>
+<script src="tour.js?v=aede9f6c"></script>
 <script src="sky.js?v=f93de382"></script>
 </head>
 <body>
@@ -57,22 +57,42 @@
   </section>
 
   <div class="today-top">
-      <section class="panel">
-        <div class="loghead"><h2>Log the day</h2><div class="timer" id="timer" role="group" aria-label="Work timer"></div></div>
-        <div class="camp" id="camp" data-s="view" data-wx="clear"></div>
-
-        <label class="f" for="date">Day</label>
-        <input class="inp" type="date" id="date">
-        <div class="lab mt"><label class="f" for="hours">Worked</label><button type="button" class="fill" data-fill="hours">Fill rest</button></div>
-        <input class="inp big" id="hours" placeholder="7h 45m  or  8:00-12:00, 13:00-15:00" autocomplete="off">
-        <div class="two mt">
-          <div><div class="lab"><label class="f" for="ptoH">PTO</label><button type="button" class="fill" data-fill="ptoH">Fill rest</button></div><input class="inp" id="ptoH" placeholder="0h" autocomplete="off"></div>
-          <div><div class="lab"><label class="f" for="sickH">Sick leave</label><button type="button" class="fill" data-fill="sickH">Fill rest</button></div><input class="inp" id="sickH" placeholder="0h" autocomplete="off"></div>
+      <section class="panel logpanel">
+        <div class="loghead">
+          <div><h2>Log the day</h2><div class="logdate" id="logdate"></div></div>
+          <div class="logbtns">
+            <button type="button" class="tbtn plan" id="planBtn" aria-expanded="false" aria-controls="planner" title="Plan when to leave" aria-label="Plan when to leave"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></button>
+            <button type="button" class="tbtn pencil" id="manualBtn" aria-expanded="false" aria-controls="manual" title="Log time by hand" aria-label="Log time by hand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1.2-4.4L16.6 4.2a2 2 0 0 1 2.8 0l.4.4a2 2 0 0 1 0 2.8L8.4 18.8z"/><path d="M14.5 6.3l3.2 3.2"/></svg></button>
+          </div>
         </div>
-        <div class="preview" id="preview"></div>
-        <div class="row mt">
-          <button class="btn primary" id="save">Save</button>
-          <button class="btn danger" id="clear">Clear</button>
+        <div class="camp" id="camp" data-s="view" data-wx="clear"></div>
+        <div class="timer bigctl" id="timer" role="group" aria-label="Work timer"></div>
+        <div class="preview" id="preview" role="status"></div>
+        <div class="planline" id="planline" hidden></div>
+        <div class="planner" id="planner" hidden>
+          <div class="two">
+            <div><label class="f" for="punchIn">Punched in at</label><input class="inp" type="time" id="punchIn"></div>
+            <div><label class="f" for="punchBrk">Break (minutes)</label><input class="inp" type="number" id="punchBrk" min="0" step="5" placeholder="0"></div>
+          </div>
+          <ul class="planlist" id="planOut"></ul>
+          <div class="row mt">
+            <button class="btn" type="button" id="planNow">Use current time</button>
+            <button class="btn" type="button" id="planStart" hidden>Start timer from then</button>
+            <button class="btn danger" type="button" id="planClear">Clear</button>
+          </div>
+        </div>
+        <div class="manual" id="manual" hidden>
+          <input type="hidden" id="date">
+          <div class="lab"><label class="f" for="hours">Worked</label><button type="button" class="fill" data-fill="hours">Fill rest</button></div>
+          <input class="inp big" id="hours" placeholder="7h 45m  or  8:00-12:00, 13:00-15:00" autocomplete="off">
+          <div class="two mt">
+            <div><div class="lab"><label class="f" for="ptoH">PTO</label><button type="button" class="fill" data-fill="ptoH">Fill rest</button></div><input class="inp" id="ptoH" placeholder="0h" autocomplete="off"></div>
+            <div><div class="lab"><label class="f" for="sickH">Sick leave</label><button type="button" class="fill" data-fill="sickH">Fill rest</button></div><input class="inp" id="sickH" placeholder="0h" autocomplete="off"></div>
+          </div>
+          <div class="row mt">
+            <button class="btn primary" id="save">Save</button>
+            <button class="btn danger" id="clear">Clear</button>
+          </div>
         </div>
       </section>
   <div class="stats" id="stats"></div>
@@ -122,7 +142,7 @@
 renderNav('index.html');
 
 const $ = id => document.getElementById(id);
-const dateEl = $('date'), hoursEl = $('hours'), preview = $('preview');
+const dateEl = $('date'), hoursEl = $('hours'), preview = $('preview');   // the form always edits today
 dateEl.value = fmt(new Date());
 
 let hikerDone = false;
@@ -152,8 +172,17 @@ function weekCard() {
     </a>`;
 }
 
+// today's hours (including a running timer) against what's expected; updated every second while a timer runs
+function updateToday() {
+  const el = $('bToday'); if (!el) return;
+  const d = startOfToday(), e = state.days[fmt(d)], t = readTimer();
+  const got = (e ? creditedFor(e, d) : 0) + (t ? timerMs(t) / 36e5 : 0), exp = expectedFor(d);
+  el.innerHTML = exp ? `${fh(got, false)}<span class="of"> / ${fh(exp, false)}</span>` : (got ? fh(got, false) : 'Day off');
+}
 function renderStats() {
   const s = stats(), { target, limitMax, limitMin } = state.settings;
+  const room = Math.min(limitMax - s.bal, s.bal + limitMin);
+  const wk = rangeTotals(mondayOf(new Date()), addDays(mondayOf(new Date()), 6));
   const hr = new Date().getHours();
   $('eyebrow').textContent = `${hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'}, traveller`;
   $('title').textContent = longDate(s.today);
@@ -182,6 +211,11 @@ function renderStats() {
       <div class="k">Balance</div>
       <div class="v huge ${cls(s.bal)}">${fhUnits(s.bal)}</div>
       <div class="s">${s.today.toLocaleString('en', { month: 'long' })} so far: <b class="tab">${fh(s.mDelta)}</b></div>
+      <div class="split bsplit">
+        <span><b class="tab" id="bToday"></b>Today</span>
+        <span><b class="tab" id="bWeek"></b>This week</span>
+        <span><b class="tab ${room < 0 ? 'neg' : ''}" id="bRoom">${room < 0 ? 'Over by ' + fh(-room, false) : fh(room, false)}</b>Room to limit</span>
+      </div>
     </div>
     <div class="panel stat">
       <div class="k">Monthly limit</div>
@@ -193,6 +227,8 @@ function renderStats() {
       <div class="ends tab"><span>−${limitMin}h</span><span>+${limitMax}h</span></div>
       <div style="margin-top:10px"><span class="badge ${s.within ? 'ok' : 'bad'}">${s.within ? 'Within limit' : 'Outside limit'}</span></div>
     </div>${weekCard()}`;
+  $('bWeek').innerHTML = `${fh(wk.total, false)}<span class="of"> / ${fh(wk.expected, false)}</span>`;
+  updateToday();
   renderCamp();
 }
 
@@ -214,6 +250,8 @@ const readFields = () => Object.fromEntries(Object.entries(FIELD).map(([key, id]
 const num = x => (x == null || Number.isNaN(x)) ? 0 : x;
 
 function loadDay() {
+  dateEl.value = fmt(new Date());                 // stays right if the page is left open past midnight
+  $('logdate').textContent = longDate(new Date());
   const e = state.days[dateEl.value] || {};
   for (const [key, id] of Object.entries(FIELD)) { $(id).value = e[key] != null ? toInput(e[key]) : ''; $(id).classList.remove('invalid'); }
   updatePreview();
@@ -373,7 +411,13 @@ document.getElementById('tourBtn').onclick = () => startTour();
 const refresh = () => { renderStats(); renderLeaves(); renderMissing(); renderHolidays(); loadDay(); };
 const flash = msg => { preview.innerHTML = `<b class="pos">${msg}</b>`; };
 
-dateEl.onchange = loadDay;
+const manual = $('manual'), manualBtn = $('manualBtn');
+function showManual(open) {
+  manual.hidden = !open; manualBtn.setAttribute('aria-expanded', open);
+  manualBtn.classList.toggle('on', open);
+  if (open) hoursEl.focus({ preventScroll: true });
+}
+manualBtn.onclick = () => showManual(manual.hidden);
 for (const id of fieldIds) { $(id).oninput = updatePreview; $(id).onkeydown = e => { if (e.key === 'Enter') $('save').click(); }; }
 document.querySelectorAll('.fill').forEach(b => b.onclick = () => {
   const exp = expectedFor(parseDate(dateEl.value)), v = readFields();
@@ -385,9 +429,9 @@ $('save').onclick = () => {
   const v = readFields();
   if (Object.values(v).some(Number.isNaN)) return;
   setEntry(dateEl.value, v);
-  renderStats(); renderLeaves(); renderMissing(); flash('Saved');
+  renderStats(); renderLeaves(); renderMissing(); flash('Saved'); showManual(false);
 };
-$('clear').onclick = () => { setEntry(dateEl.value, {}); refresh(); flash('Cleared'); };
+$('clear').onclick = () => { setEntry(dateEl.value, {}); refresh(); flash('Cleared'); showManual(false); };
 
 $('missing').onclick = ev => {
   const b = ev.target.closest('button[data-a]'); if (!b) return;
@@ -396,7 +440,7 @@ $('missing').onclick = ev => {
   if (b.dataset.a === 'full') { setEntry(k, { w: T }); refresh(); }
   else if (b.dataset.a === 'pto') { setEntry(k, { pto: T }); refresh(); }
   else if (b.dataset.a === 'sick') { setEntry(k, { sick: T }); refresh(); }
-  else { dateEl.value = k; loadDay(); hoursEl.focus(); }
+  else location.href = 'calendar.html#' + k;      // other days are edited in the calendar
 };
 
 // ---- timer UI (the timer itself lives in timer.js, and the camp scene in camp.js, so other pages can use them too)
@@ -405,9 +449,10 @@ const camp = mountCamp($('camp'), { caption: true });
 const renderCamp = (light = false) => camp.update(light);
 function renderTimer() {
   renderCamp();
+  if (typeof renderPlan === 'function' && typeof planEl !== 'undefined') renderPlan();
   const t = readTimer(), box = $('timer');
-  const btn = (a, ic, label, extra = '') => `<button type="button" class="tbtn ${extra}" data-t="${a}" title="${label}" aria-label="${label}">${TI[ic]}</button>`;
-  if (!t) { box.innerHTML = (timerNote ? `<span class="tnote" role="status">${timerNote}</span>` : '') + btn('start', 'play', 'Start the timer', 'play'); document.title = 'Today \u00b7 VibeTime'; return; }
+  const btn = (a, ic, label, extra = '') => `<button type="button" class="tbtn big ${extra}" data-t="${a}" title="${label}" aria-label="${label}">${TI[ic]}</button>`;
+  if (!t) { box.innerHTML = `<button type="button" class="bigplay" data-t="start" aria-label="Start the timer">${TI.play}<span>Start tracking</span></button>` + (timerNote ? `<span class="tnote" role="status">${timerNote}</span>` : ''); document.title = 'Today \u00b7 VibeTime'; return; }
   box.innerHTML = `<span class="tclock tab ${t.mode === 'run' ? 'live' : 'paused'}" role="timer" aria-label="${t.mode === 'run' ? 'Timer running' : 'Timer paused'}">${clock(timerMs(t))}</span>`
     + (t.mode === 'run' ? btn('pause', 'pause', 'Pause for a break') : btn('resume', 'play', 'Continue', 'play'))
     + btn('stop', 'stop', 'Stop and log the time', 'stop');
@@ -415,7 +460,7 @@ function renderTimer() {
 }
 function tickTimer() {
   const t = readTimer(), c = $('timer').querySelector('.tclock');
-  if (t) renderCamp(true);
+  if (t) { renderCamp(true); updateToday(); }
   if (t && c) { c.textContent = clock(timerMs(t)); document.title = `${t.mode === 'run' ? '\u25B6' : '\u23F8'} ${c.textContent} \u00b7 VibeTime`; }
 }
 $('timer').onclick = ev => {
@@ -426,13 +471,73 @@ $('timer').onclick = ev => {
   if (r.logged) { dateEl.value = fmt(new Date()); refresh(); flash(`Logged ${fh(r.logged, false)} from the timer`); }
   renderTimer();
 };
+// ---- punch-in planner: type when you started and see when you can leave
+const PLAN_KEY = 'vibetime.punchin', BREAK_KEY = 'vibetime.break';
+const planEl = $('planner'), planBtn = $('planBtn');
+function readPlan() {
+  try { const p = JSON.parse(localStorage.getItem(PLAN_KEY)); return p && p.date === fmt(new Date()) && /^\d{1,2}:\d{2}$/.test(p.time) ? p : null; } catch { return null; }
+}
+const readBreak = () => { try { return Math.max(0, Number(localStorage.getItem(BREAK_KEY)) || 0); } catch { return 0; } };
+const clockText = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+// Leave times for the punch-in on record. "gap" is your balance before today measured against your quarter target:
+// negative = time you still owe, positive = extra you can spend.
+function planRows() {
+  const p = readPlan(); if (!p) return null;
+  const [h, m] = p.time.split(':').map(Number), now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m).getTime();
+  const brk = readBreak() * 6e4, exp = expectedFor(startOfToday());
+  const gap = balanceThrough(addDays(startOfToday(), -1)) - state.settings.quarterTarget;
+  const at = hrs => from + Math.max(0, hrs) * 36e5 + brk;
+  const rows = [];
+  if (exp > 0) rows.push({ k: 'full', label: `Full ${fh(exp, false)} day`, at: at(exp) });
+  if (gap < -0.008) rows.push({ k: 'owe', label: `To clear your ${fh(-gap, false)} missing`, at: at(exp - gap) });
+  if (gap > 0.008 && exp > 0) rows.push({ k: 'extra', label: `Earliest, using your ${fh(gap, false)} extra`, at: at(exp - gap), free: exp - gap <= 0 });
+  if (!exp && gap < -0.008) rows.push({ k: 'owe', label: `To clear your ${fh(-gap, false)} missing`, at: at(-gap) });
+  return { rows, from, now: now.getTime(), noHours: !exp && !(gap < -0.008) };
+}
+const untilText = (at, now) => {
+  const d = at - now, mins = Math.round(Math.abs(d) / 6e4);
+  return d >= 0 ? `in ${fh(mins / 60, false)}` : `${fh(mins / 60, false)} ago`;
+};
+function renderPlan() {
+  const pl = planRows(), line = $('planline'), out = $('planOut');
+  $('planStart').hidden = !pl || pl.from > Date.now() || !!readTimer();
+  if (!pl) { line.hidden = true; out.innerHTML = '<li class="empty">Enter the time you punched in.</li>'; planBtn.classList.remove('has'); return; }
+  planBtn.classList.add('has');
+  out.innerHTML = pl.noHours ? '<li class="empty">No hours are expected today.</li>' : pl.rows.map(x => `<li class="${x.k}"><span class="d">${x.label}</span><b class="tab">${x.free ? 'any time' : clockText(x.at)}</b><span class="when">${x.free ? 'your extra covers the day' : untilText(x.at, pl.now)}</span></li>`).join('');
+  const short = { full: 'for a full day', owe: 'to clear what you owe', extra: 'earliest' };
+  line.innerHTML = pl.noHours ? '' : pl.rows.map(x => `<span><b class="tab">${x.free ? 'Any time' : clockText(x.at)}</b> ${short[x.k]}</span>`).join('');
+  line.hidden = planEl.hidden === false || pl.noHours;
+}
+function showPlan(open) {
+  planEl.hidden = !open; planBtn.setAttribute('aria-expanded', open); planBtn.classList.toggle('on', open);
+  renderPlan();
+  if (open) $('punchIn').focus({ preventScroll: true });
+}
+planBtn.onclick = () => showPlan(planEl.hidden);
+function savePlan() {
+  const v = $('punchIn').value, brk = Math.max(0, Number($('punchBrk').value) || 0);
+  try { localStorage.setItem(BREAK_KEY, String(brk)); v ? localStorage.setItem(PLAN_KEY, JSON.stringify({ date: fmt(new Date()), time: v })) : localStorage.removeItem(PLAN_KEY); } catch {}
+  renderPlan();
+}
+$('punchIn').oninput = savePlan; $('punchBrk').oninput = savePlan;
+$('planNow').onclick = () => { const n = new Date(); $('punchIn').value = `${pad(n.getHours())}:${pad(n.getMinutes())}`; savePlan(); };
+$('planClear').onclick = () => { $('punchIn').value = ''; savePlan(); };
+$('planStart').onclick = () => {                       // carry on as if the timer had been started at the punch-in time
+  const pl = planRows(); if (!pl || pl.from > Date.now() || readTimer()) return;
+  try { localStorage.removeItem(PUNCH_KEY); } catch {}
+  writeTimer({ mode: 'run', since: pl.from, acc: 0 }); renderTimer(); renderPlan();
+};
+(() => { const p = readPlan(); if (p) $('punchIn').value = p.time; $('punchBrk').value = readBreak() || ''; renderPlan(); })();
+setInterval(renderPlan, 30000);
+window.addEventListener('storage', ev => { if (ev.key === TIMER_KEY) renderPlan(); });
+
 setInterval(tickTimer, 1000);
 window.addEventListener('storage', ev => { if (ev.key === TIMER_KEY || ev.key === PUNCH_KEY) renderTimer(); });
 renderTimer();
 
 window.addEventListener('holidays-updated', () => { renderStats(); renderLeaves(); renderMissing(); renderHolidays(); updatePreview(); });
 refresh();
-hoursEl.focus({ preventScroll: true });
 </script>
 </body>
 </html>

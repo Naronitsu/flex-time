@@ -14,6 +14,12 @@
 //   4. Copy the Client ID below. It is not a secret.
 const GOOGLE_CLIENT_ID = '434753019077-ttr70tcnd8lpa1rc8r6r9jgbjlik0p00.apps.googleusercontent.com';
 
+// Staying signed in: with AUTH_WORKER set (see worker/vibetime-auth.js) sign-in uses a normal Google page and a
+// long-lasting token that the Worker refreshes, so you only sign in once per device. Without it, the browser-only
+// fallback below is used, and Google asks for a fresh sign-in about once an hour.
+const AUTH_WORKER = 'https://small-frost-4e3b.damiannav03.workers.dev';
+const usingWorker = () => !!AUTH_WORKER;
+
 const SYNC_KEY = 'vibetime.sync', SYNC_FILE = 'vibetime.json';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const syncAvailable = () => !!GOOGLE_CLIENT_ID;
@@ -70,19 +76,71 @@ async function requestToken() {
     _client.requestAccessToken({ prompt: '' });
   });
 }
-// Google's sign-in window may only open from a click, so a background sync never opens it: it pauses instead.
+// ---- staying signed in through the Worker (authorization code flow with PKCE)
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const syncRedirect = () => location.origin + location.pathname.replace(/[^/]*$/, '') + 'settings.html';
+async function workerCall(path, body) {
+  const res = await fetch(`${AUTH_WORKER.replace(/\/+$/, '')}/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(j.error_description || j.error || `Sign-in helper said no (${res.status}).`), { code: j.error });
+  return j;
+}
+async function startGoogleSignIn(after = '') {          // leaves the page for Google, and comes back to Settings
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
+  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
+  sessionStorage.setItem('vt.pkce', verifier); sessionStorage.setItem('vt.state', state); sessionStorage.setItem('vt.after', after);
+  location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID, redirect_uri: syncRedirect(), response_type: 'code', scope: DRIVE_SCOPE,
+    access_type: 'offline', prompt: 'consent', code_challenge: challenge, code_challenge_method: 'S256', state });
+  return new Promise(() => {});                         // the page is going away
+}
+// Called on every page load: if we have just come back from Google, trade the code for tokens.
+async function handleGoogleRedirect() {
+  if (!usingWorker()) return false;
+  const q = new URLSearchParams(location.search), verifier = sessionStorage.getItem('vt.pkce');
+  if (!verifier || !(q.has('code') || q.has('error'))) return false;
+  const want = sessionStorage.getItem('vt.state');
+  sessionStorage.removeItem('vt.pkce'); sessionStorage.removeItem('vt.state');
+  history.replaceState(null, '', location.pathname + location.hash);
+  if (q.has('error')) { setSyncStatus('error', 'Google sign-in was cancelled.'); return true; }
+  if (q.get('state') !== want) { setSyncStatus('error', 'The sign-in couldn\u2019t be verified. Please try again.'); return true; }
+  try {
+    const j = await workerCall('token', { code: q.get('code'), code_verifier: verifier, redirect_uri: syncRedirect() });
+    if (!j.refresh_token) throw new Error('Google didn\u2019t give a long-lasting sign-in. Remove VibeTime at myaccount.google.com/permissions, then connect again.');
+    syncWrite({ on: true, refresh: j.refresh_token, access: j.access_token, exp: Date.now() + (Number(j.expires_in) || 3600) * 1000, last: 0 });
+  } catch (err) { setSyncStatus('error', err.message === 'Failed to fetch' ? 'Couldn\u2019t reach the sign-in helper. Check AUTH_WORKER in sync.js.' : err.message); }
+  return true;
+}
+
+// ---- access tokens
+// In the browser-only fallback Google's sign-in window may only open from a click, so a background sync pauses instead.
 let _gesture = false;
 async function accessToken() {
   const i = syncInfo();
   if (!i) throw new Error('Not connected.');
   if (i.access && i.exp > Date.now() + 60000) return i.access;
+  if (usingWorker()) {
+    if (i.refresh) {
+      try {
+        const j = await workerCall('refresh', { refresh_token: i.refresh });
+        syncWrite({ ...syncInfo(), access: j.access_token, exp: Date.now() + (Number(j.expires_in) || 3600) * 1000 });
+        return j.access_token;
+      } catch (err) {
+        if (err.code !== 'invalid_grant') throw err;
+        syncWrite({ ...syncInfo(), refresh: null, access: null });
+      }
+    }
+    throw Object.assign(new Error('Your Google sign-in has expired. Sign in again to resume syncing.'), { signin: true });
+  }
   if (!_gesture) throw Object.assign(new Error('Sync is paused. Sign in to Google again to resume.'), { signin: true });
   const r = await requestToken();
   syncWrite({ ...syncInfo(), access: r.access_token, exp: Date.now() + (Number(r.expires_in) || 3600) * 1000 });
   return r.access_token;
 }
-async function syncConnect() {                    // call from a click
+async function syncConnect(after = '') {              // call from a click
   if (!syncAvailable()) return false;
+  if (usingWorker()) return startGoogleSignIn(after);
   try {
     const r = await requestToken();
     syncWrite({ on: true, access: r.access_token, exp: Date.now() + (Number(r.expires_in) || 3600) * 1000, last: 0 });
@@ -92,7 +150,10 @@ async function syncConnect() {                    // call from a click
 async function syncDisconnect() {
   const i = syncInfo();
   syncWrite(null);
-  try { if (i && i.access && window.google && google.accounts) google.accounts.oauth2.revoke(i.access); } catch {}
+  try {
+    if (usingWorker()) { if (i && (i.refresh || i.access)) workerCall('revoke', { token: i.refresh || i.access }).catch(() => {}); }
+    else if (i && i.access && window.google && google.accounts) google.accounts.oauth2.revoke(i.access);
+  } catch {}
   setSyncStatus('idle');
 }
 
@@ -152,7 +213,7 @@ async function syncNow(noReload = false, gesture = false) {
     syncWrite({ ...syncInfo(), last: Date.now() });
     setSyncStatus('ok');
   } catch (err) {
-    if (err.signin) setSyncStatus('signin', err.message);
+    if (err.signin) { setSyncStatus('signin', err.message); if (gesture === true && usingWorker()) setTimeout(() => syncConnect(), 0); }
     else setSyncStatus('error', err.message === 'Failed to fetch' ? 'Couldn’t reach Google Drive. Will try again.' : err.message);
   } finally {
     _busy = false; _gesture = false;
@@ -170,9 +231,14 @@ function vtSyncSoon() {
   clearTimeout(_timer); _timer = setTimeout(syncNow, 2500);
 }
 
-// New device: sign in and pull what is already there. Resolves { ok, msg }; nothing is uploaded unless data was found.
+// New device: sign in and pull what is already there. Nothing is uploaded unless data was found.
+// Browser-only fallback: resolves { ok, msg }. With the Worker the page leaves for Google and finishes in finishRestore().
 async function syncRestore() {
-  if (!await syncConnect()) return { ok: false, msg: _syncStatus.msg || 'Sign-in didn’t finish.' };
+  if (usingWorker()) { sessionStorage.setItem('vt.after', 'welcome'); return syncConnect('welcome'); }
+  if (!await syncConnect()) return { ok: false, msg: _syncStatus.msg || 'Sign-in didn\u2019t finish.' };
+  return finishRestore();
+}
+async function finishRestore() {
   let found;
   try { found = await remoteGet(); } catch (err) { await syncDisconnect(); return { ok: false, msg: err.message }; }
   if (!found) { await syncDisconnect(); return { ok: false, msg: 'No VibeTime data was found in that Google account. Set up VibeTime instead, then connect Google Drive in Settings.' }; }
@@ -182,14 +248,26 @@ async function syncRestore() {
 }
 
 // ---- when to sync: on opening a page, after changes (above), when coming back to the tab, and when leaving it
-if (syncAvailable() && syncConnected()) {
-  setTimeout(syncNow, 600);
+(async () => {
+  const after = sessionStorage.getItem('vt.after');
+  const back = await handleGoogleRedirect();             // just came back from Google (Worker mode)?
+  if (!syncAvailable() || !syncConnected()) { if (back && after) sessionStorage.removeItem('vt.after'); return; }
+  if (back) {
+    sessionStorage.removeItem('vt.after');
+    if (after === 'welcome') {                           // a new device that just signed in: pull everything, then start using it
+      const res = await finishRestore();
+      if (res.ok) location.href = 'index.html';
+      else { sessionStorage.setItem('vt.msg', res.msg); try { localStorage.removeItem(WELCOME_KEY); } catch {} location.href = 'welcome.html'; }
+      return;
+    }
+    await syncNow(false, true);
+  } else setTimeout(syncNow, 600);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') syncNow();
     else if (Date.now() - ((syncInfo() || {}).last || 0) > 30000) syncNow();
   });
   window.addEventListener('online', () => syncNow());
-}
+})();
 
 // A small chip in the sidebar when sync needs a sign-in (a click there is what allows Google's window to open).
 window.addEventListener('vibetime-sync', ev => {

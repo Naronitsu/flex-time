@@ -714,3 +714,51 @@ body.bare { display:block; }
 @container col (max-width: 780px) { .today-top .stats { grid-template-rows:none; } .today-top .stats .weekcard .skybox svg { max-height:190px; height:auto; } }
 .grid2 { align-items:stretch; }
 .grid2 { grid-template-columns:1fr 1fr; gap:20px; }
+
+/* ---------- Log the day: today only, big play button, hand entry behind a pencil ---------- */
+.logpanel .loghead { align-items:flex-start; margin-bottom:12px; }
+.logdate { color:var(--muted); font-weight:800; font-size:14px; margin-top:-8px; }
+.logpanel .camp { flex:1 1 auto; min-height:150px; max-height:420px; margin:0 0 14px; display:flex; flex-direction:column; }
+.logpanel .camp svg { flex:1; height:100%; min-height:0; aspect-ratio:auto; }
+.logpanel .camp .campcap { flex:none; }
+.bigctl { display:flex; align-items:center; justify-content:center; gap:14px; min-height:68px; }
+.bigplay { display:inline-flex; align-items:center; gap:12px; padding:12px 30px 12px 22px; border:3px solid var(--line); border-radius:99px; background:var(--accent); color:var(--accent-ink); font-family:var(--display); font-size:22px; box-shadow:4px 4px 0 var(--shadow); transition:transform .1s, box-shadow .1s; }
+.bigplay svg { width:30px; height:30px; fill:currentColor; stroke:currentColor; stroke-width:2.5; stroke-linejoin:round; }
+.bigplay:hover { transform:translate(-2px,-2px); box-shadow:6px 6px 0 var(--shadow); }
+.bigplay:active { transform:translate(2px,2px); box-shadow:1px 1px 0 var(--shadow); }
+.bigplay:focus-visible, .tbtn:focus-visible { outline:3px solid var(--link); outline-offset:3px; }
+.tbtn.big { width:62px; height:62px; box-shadow:4px 4px 0 var(--shadow); }
+.tbtn.big svg { width:26px; height:26px; }
+.bigctl .tclock { font-size:36px; margin-right:6px; }
+.bigctl .tclock.live::before { width:12px; height:12px; margin-right:10px; }
+.bigctl .tnote { position:absolute; }
+.pencil.on { background:var(--accent); color:var(--accent-ink); }
+.pencil svg { fill:none; }
+.logpanel .preview { text-align:center; min-height:24px; margin:10px 0 0; }
+.manual { margin-top:14px; padding-top:14px; border-top:2px dashed var(--line); animation:rise .3s ease both; }
+.manual[hidden] { display:none; }
+@media (max-width:700px) { .bigplay { font-size:20px; padding:10px 24px 10px 18px; } .bigctl .tclock { font-size:28px; } .tbtn.big { width:54px; height:54px; } .logpanel .camp { max-height:210px; } }
+
+/* balance card: today, this week, room to the limit */
+.bsplit { margin-bottom:0; }
+.bsplit b { font-size:20px; white-space:nowrap; }
+.bsplit .of, .split b .of { font-size:.66em; color:var(--muted); font-weight:800; margin-left:2px; }
+@container (max-width: 300px) { .bsplit { grid-template-columns:1fr; gap:4px; } .bsplit span { display:flex; align-items:baseline; justify-content:space-between; gap:8px; } .bsplit b { font-size:17px; } }
+.split b .of, .bsplit .of { text-transform:none; letter-spacing:0; }
+
+/* ---------- punch-in planner ---------- */
+.logbtns { display:flex; gap:8px; }
+.logbtns .tbtn { width:38px; height:38px; }
+.plan svg, .pencil svg { fill:none; }
+.tbtn.plan.on, .tbtn.plan.has { background:var(--accent); color:var(--accent-ink); }
+.planline { display:flex; flex-wrap:wrap; justify-content:center; gap:4px 16px; margin-top:8px; color:var(--muted); font-weight:700; font-size:14px; }
+.planline b { color:var(--ink); }
+.planline[hidden], .planner[hidden] { display:none; }
+.planner { margin-top:14px; padding-top:14px; border-top:2px dashed var(--line); animation:rise .3s ease both; }
+.planlist { list-style:none; margin:14px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.planlist li { display:grid; grid-template-columns:1fr auto; align-items:baseline; gap:2px 12px; padding:9px 12px; background:var(--soft); border:2px solid var(--line); border-radius:12px; }
+.planlist li.empty { display:block; color:var(--muted); font-weight:700; background:none; border-style:dashed; }
+.planlist li .d { font-weight:800; }
+.planlist li b { font-family:var(--sans); font-weight:900; font-size:20px; }
+.planlist li .when { grid-column:1 / -1; color:var(--muted); font-size:13px; font-weight:700; }
+.planlist li.full b { color:var(--ink); } .planlist li.owe b { color:var(--bad); } .planlist li.extra b { color:var(--ok); }
